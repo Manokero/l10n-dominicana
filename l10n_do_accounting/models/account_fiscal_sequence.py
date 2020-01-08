@@ -5,7 +5,7 @@ import pytz
 from datetime import datetime
 
 from odoo import models, fields, api, _
-from odoo.exceptions import ValidationError
+from odoo.exceptions import ValidationError, UserError
 
 
 def get_l10n_do_datetime():
@@ -217,6 +217,10 @@ class AccountFiscalSequence(models.Model):
         return super(AccountFiscalSequence, self).unlink()
 
     @api.multi
+    def copy(self, default=None):
+        raise UserError(_('You cannot duplicate a Fiscal Sequence.'))
+
+    @api.multi
     def name_get(self):
         result = []
         for sequence in self:
@@ -329,7 +333,7 @@ class AccountFiscalSequence(models.Model):
 
     def get_fiscal_number(self):
 
-        if not self.fiscal_type_id.internal_generate:
+        if not self.fiscal_type_id.assigned_sequence:
             return False
 
         if self.sequence_remaining > 0:
@@ -376,6 +380,12 @@ class AccountFiscalType(models.Model):
     ],
         required=True,
     )
+    journal_type = fields.Selection([
+        ('sale', 'Sale'),
+        ('purchase', 'Purchase'),
+    ],
+        compute="_compute_journal_type"
+    )
     fiscal_position_id = fields.Many2one(
         "account.fiscal.position",
         string="Fiscal Position",
@@ -384,14 +394,21 @@ class AccountFiscalType(models.Model):
         "account.journal",
         string="Journal",
     )
-    internal_generate = fields.Boolean(
+    assigned_sequence = fields.Boolean(
         default=True,
     )
-    required_document = fields.Boolean(
-        string="Required document",
+    requires_document = fields.Boolean(
+        string="Requires a document?",
     )
 
     _sql_constraints = [
         ('type_prefix_uniq', 'unique (type, prefix)',
          'There must be only one Fiscal Type of this Type and Prefix')
     ]
+
+    @api.multi
+    @api.depends('type')
+    def _compute_journal_type(self):
+        for fiscal_type in self:
+            fiscal_type.journal_type = 'sale' if \
+                fiscal_type.type[:3] == 'out' else 'purchase'
